@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 from __future__ import absolute_import, unicode_literals
@@ -58,16 +58,15 @@ def import_string( dotted_path ):
     try:
         module_path, class_name = dotted_path.rsplit( '.', 1 )
     except ValueError as err:
-        raise ImportError( "%s doesn't look like a module path" % dotted_path ) from err
+        raise ImportError( "dotted_path:{0},err:{1} doesn't look like a module path".format(dotted_path,err))
 
     module = import_module( module_path )
 
     try:
         return getattr( module, class_name )
     except AttributeError as err:
-        raise ImportError( 'Module "%s" does not define a "%s" attribute/class' % ( 
-            module_path, class_name )
-        ) from err
+        raise ImportError( 'Module {0} does not define a {1} attribute/class,err:{2}'.format( 
+            module_path, class_name, err ) )
 
 
 def is_protected_type( obj ):

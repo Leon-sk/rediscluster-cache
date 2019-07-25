@@ -1,13 +1,13 @@
-#!/usr/bin/python3
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 import functools
 import logging
 
-from .base import BaseCache
+from rediscluster_cache.base import BaseCache
 
-from .exceptions import ConnectionInterrupted
-from .util import load_class
+from rediscluster_cache.exceptions import ConnectionInterrupted
+from rediscluster_cache.util import load_class
 
 IGNORE_EXCEPTIONS = False
 REDIS_LOG_IGNORED_EXCEPTIONS = False

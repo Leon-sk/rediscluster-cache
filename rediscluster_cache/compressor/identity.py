@@ -1,6 +1,7 @@
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from .base import BaseCompressor
+from rediscluster_cache.compressor.base import BaseCompressor
 
 
 class IdentityCompressor(BaseCompressor):

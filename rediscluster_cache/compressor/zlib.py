@@ -1,12 +1,12 @@
-#!/usr/bin/python3
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 from __future__ import absolute_import
 
 import zlib
 
-from ..exceptions import CompressorError
-from .base import BaseCompressor
+from rediscluster_cache.compressor.base import BaseCompressor
+from rediscluster_cache.exceptions import CompressorError
 
 
 class ZlibCompressor(BaseCompressor):

@@ -1,13 +1,12 @@
-#!/usr/bin/python3
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 from __future__ import absolute_import, unicode_literals
 
 import json
 
-from ..util import force_bytes, force_text
-
-from .base import BaseSerializer
+from rediscluster_cache.serializers.base import BaseSerializer
+from rediscluster_cache.util import force_bytes, force_text
 
 
 class JSONSerializer(BaseSerializer):

@@ -9,7 +9,7 @@ Full featured rediscluster cache backend.
 setup(
     name = "rediscluster-cache",
     url = "https://github.com/Leon-sk/rediscluster-cache.git",
-    author = "zhangwm",
+    author = "leon-sk",
     author_email = "misslittleforest@icloud.com",
     version=__version__,
     packages = [
@@ -30,6 +30,6 @@ setup(
         "": ["*.html"],
     },
     classifiers = [
-        "Development Status :: 5 - Production/Stable",
+        "Development Status ",
     ],
 )

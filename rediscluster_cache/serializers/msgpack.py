@@ -1,11 +1,11 @@
-#!/usr/bin/python3
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 from __future__ import absolute_import, unicode_literals
 
 import msgpack
 
-from .base import BaseSerializer
+from rediscluster_cache.serializers.base import BaseSerializer
 
 
 class MSGPackSerializer(BaseSerializer):

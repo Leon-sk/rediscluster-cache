@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 from __future__ import absolute_import, unicode_literals
@@ -10,11 +10,11 @@ import warnings
 
 from redis.exceptions import ConnectionError
 
-from .. import pool
-from ..exceptions import ConnectionInterrupted, CompressorError
-from ..util import CacheKey, load_class, integer_types
-from ..util import DEFAULT_TIMEOUT, get_key_func
-from ..util import smart_text
+from rediscluster_cache.exceptions import ConnectionInterrupted, CompressorError
+from rediscluster_cache.pool import get_connection_factory
+from rediscluster_cache.util import CacheKey, load_class, integer_types
+from rediscluster_cache.util import DEFAULT_TIMEOUT, get_key_func
+from rediscluster_cache.util import smart_text
 
 # Compatibility with redis-py 2.10.6+
 try:
@@ -25,6 +25,9 @@ except ImportError:
 
 
 class DefaultClient(object):
+    # RedisCluster slots
+    Slots = 16384
+
     def __init__(self, server, params, backend):
         self._backend = backend
         self._server = server
@@ -39,7 +42,7 @@ class DefaultClient(object):
         if not isinstance(self._server, (list, tuple, set)):
             self._server = self._server.split(",")
 
-        self._clients = [None] * len(self._server)
+        self._clients = [None] * DefaultClient.Slots
         self._options = params.get("OPTIONS", {})
 
         serializer_path = self._options.get( "SERIALIZER", "rediscluster_cache.serializers.pickle.PickleSerializer" )
@@ -51,7 +54,7 @@ class DefaultClient(object):
         self._serializer = serializer_cls(options=self._options)
         self._compressor = compressor_cls(options=self._options)
 
-        self.connection_factory = pool.get_connection_factory(options=self._options)
+        self.connection_factory = get_connection_factory( options = self._options )
 
     def __contains__(self, key):
         return self.has_key(key)

@@ -1,7 +1,10 @@
-#!/usr/bin/python3
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 from __future__ import absolute_import, unicode_literals
+
+from rediscluster_cache.serializers.base import BaseSerializer
+from rediscluster_cache.util import force_bytes
 
 # Import the fastest implementation of
 # pickle package. This should be removed
@@ -12,10 +15,7 @@ try:
 except ImportError:
     import pickle
 
-from django.core.exceptions import ImproperlyConfigured
-from django.utils.encoding import force_bytes
 
-from .base import BaseSerializer
 
 
 class PickleSerializer(BaseSerializer):
@@ -28,7 +28,7 @@ class PickleSerializer(BaseSerializer):
             try:
                 self._pickle_version = int(options["PICKLE_VERSION"])
             except (ValueError, TypeError):
-                raise ImproperlyConfigured("PICKLE_VERSION value must be an integer")
+                raise Exception( "PICKLE_VERSION value must be an integer" )
 
     def dumps(self, value):
         return pickle.dumps(value, self._pickle_version)

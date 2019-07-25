@@ -1,13 +1,14 @@
-#!/usr/bin/python3
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 '''
 Created on 2019年7月24日
 
-@author: zhangwm
+@author: leon-sk
 '''
 import time
 import warnings
-from .util import get_key_func, DEFAULT_TIMEOUT, MEMCACHE_MAX_KEY_LENGTH
+from rediscluster_cache.util import get_key_func, DEFAULT_TIMEOUT, MEMCACHE_MAX_KEY_LENGTH
+
 
 class BaseCache( object ):
 
