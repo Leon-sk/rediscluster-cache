@@ -7,6 +7,7 @@ Created on 2019年7月25日
 @author: leon-sk
 '''
 import random
+
 from rediscluster_cache.pool import get_connection_factory
 
 
@@ -60,15 +61,57 @@ class NodeManager( object ):
         if not client:
             raise Exception( "All connections are not available" )
         return client
+    
+    def cluster_slots(self):
+        '''
+        CLUSTER SLOTS
+        Each nested result is:
+
+        Start slot range
+        End slot range
+        Master for slot range represented as nested IP/Port array
+        First replica of master for slot range
+        Second replica
+        ...continues until all replicas for this master are returned.
+            '''
+        cluster_nodes = None
+        try:
+            client = self.get_client()
+            if client:
+                cluster_nodes = client.execute_command( "cluster", "slots" )
+                print cluster_nodes
+        except:
+            pass
+        return cluster_nodes
+
+    def get_connections( self, params ):
+        connections = []
+        if params:
+            for param in params:
+                connection = self.connection_factory.connect( {"host":param[0], "port":param[1]} )
+                if not connection:
+                    continue
+                connections.append( connection )
+        return connections
 
     def init_nodes( self ):
-        client = self.get_client()
-        if client:
-            cluster_nodes = client.execute_command( "cluster", "slots" )
-            print ( cluster_nodes )
+        '''
+        Initialize all cluster node connections
+        '''
+        slots = self.cluster_slots()
+        if not slots:
+            raise Exception( "Failed to acquire cluster slots" )
+        for slot in slots:
+            if not slot:
+                continue
+            connections = self.get_connections( slot[2:] )
+            start_range = slot[0]
+            end_range = slot[1]
+            for num in range( start_range, end_range + 1 ):
+                self._nodes[num] = connections
 
     def reset_nodes( self ):
-        pass
+        self.init_nodes()
 
 
 if __name__ == '__main__':

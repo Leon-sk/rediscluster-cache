@@ -67,10 +67,10 @@ class ConnectionFactory(object):
         return a new connection.
         """
         params = self.make_connection_params( params )
-        connection = self.get_connection(params)
+        connection = self.get_connection( params )
         return connection
 
-    def get_connection(self, params):
+    def get_connection( self, params ):
         """
         Given a now preformated params, return a
         new connection.
