@@ -7,8 +7,9 @@ Created on 2019年7月25日
 @author: leon-sk
 '''
 import random
-
+from redis._compat import b, unicode, bytes, long, basestring
 from rediscluster_cache.pool import get_connection_factory
+from rediscluster_cache.util import crc16
 
 
 class NodeManager( object ):
@@ -27,6 +28,8 @@ class NodeManager( object ):
             self._server = self._server.split( "," )
 
         self._nodes = [None] * NodeManager.Slots
+
+        self._keyslot = {}
 
         self.connection_factory = get_connection_factory( options = self._options )
 
@@ -61,7 +64,65 @@ class NodeManager( object ):
         if not client:
             raise Exception( "All connections are not available" )
         return client
-    
+
+    def get_clients( self ):
+        """
+        Method used for obtain a raw redis client.
+
+        This function is used by almost all cache backend
+        operations for obtain a native redis client/connection
+        instance.
+        """
+        clients = []
+        try:
+            for index in range( len( self._server ) ):
+                client = self.connect( index )
+                if client:
+                    clients.append( client )
+        except:
+            pass
+        if not clients:
+            raise Exception( "All connections are not available" )
+        return clients
+
+    def encode( self, value ):
+        """
+        Return a bytestring representation of the value.
+        This method is copied from Redis' connection.py:Connection.encode
+        """
+        if isinstance( value, bytes ):
+            return value
+        elif isinstance( value, ( int, long ) ):
+            value = b( str( value ) )
+        elif isinstance( value, float ):
+            value = b( repr( value ) )
+        elif not isinstance( value, basestring ):
+            value = unicode( value )
+        if isinstance( value, unicode ):
+            # The encoding should be configurable as in connection.py:Connection.encode
+            value = value.encode( 'utf-8' )
+        return value
+
+    def keyslot( self, key ):
+        """
+        Calculate keyslot for a given key.
+        Tuned for compatibility with python 2.7.x
+        """
+        slot = self._keyslot.get( key )
+        if not slot:
+            k = self.encode( key )
+
+            start = k.find( b"{" )
+
+            if start > -1:
+                end = k.find( b"}", start + 1 )
+                if end > -1 and end != start + 1:
+                    k = k[start + 1:end]
+
+            slot = crc16( k ) % self.Slots
+            self._keyslot[key] = slot
+        return slot
+
     def cluster_slots(self):
         '''
         CLUSTER SLOTS
@@ -88,11 +149,23 @@ class NodeManager( object ):
         connections = []
         if params:
             for param in params:
-                connection = self.connection_factory.connect( {"host":param[0], "port":param[1]} )
+                host = param[0]
+                port = param[1]
+                connection = self.connection_factory.connect( {"host":host, "port":port} )
                 if not connection:
                     continue
+                self.update_server( host, port )
                 connections.append( connection )
         return connections
+
+    def update_server( self, host, port ):
+        if not host or not port:
+            return
+        if self._server:
+            for server in self._server:
+                if server.get( "host" ) == host and server.get( "port" ) == port:
+                    continue
+                self._server.append( {"host":host, "port":port} )
 
     def init_nodes( self ):
         '''
@@ -109,6 +182,14 @@ class NodeManager( object ):
             end_range = slot[1]
             for num in range( start_range, end_range + 1 ):
                 self._nodes[num] = connections
+
+    def get_node( self, key, write = True ):
+        slot = self.keyslot( key )
+        connections = self._nodes[slot]
+        if write or len( connections ) == 1:
+            return connections[0]
+
+        return random.randint( 1, len( connections ) - 1 )
 
     def reset_nodes( self ):
         self.init_nodes()

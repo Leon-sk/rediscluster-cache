@@ -2,19 +2,13 @@
 # -*- coding: utf-8 -*-
 
 from __future__ import absolute_import, unicode_literals
-
-from collections import OrderedDict
-import random
 import socket
 import warnings
-
 from redis.exceptions import ConnectionError
-
 from rediscluster_cache.exceptions import ConnectionInterrupted, CompressorError
-from rediscluster_cache.pool import get_connection_factory
+from rediscluster_cache.nodemanager import NodeManager
 from rediscluster_cache.util import CacheKey, load_class, integer_types
 from rediscluster_cache.util import DEFAULT_TIMEOUT, get_key_func
-from rediscluster_cache.util import smart_text
 
 # Compatibility with redis-py 2.10.6+
 try:
@@ -25,8 +19,6 @@ except ImportError:
 
 
 class DefaultClient(object):
-    # RedisCluster slots
-    Slots = 16384
 
     def __init__(self, server, params, backend):
         self._backend = backend
@@ -54,26 +46,12 @@ class DefaultClient(object):
         self._serializer = serializer_cls(options=self._options)
         self._compressor = compressor_cls(options=self._options)
 
-        self.connection_factory = get_connection_factory( options = self._options )
+        self.node_manager = NodeManager( self._server, self._params )
 
     def __contains__(self, key):
         return self.has_key(key)
 
-    def get_next_client_index(self, write=True):
-        """
-        Return a next index for read client.
-        This function implements a default behavior for
-        get a next read client for master-slave setup.
-
-        Overwrite this function if you want a specific
-        behavior.
-        """
-        if write or len(self._server) == 1:
-            return 0
-
-        return random.randint(1, len(self._server) - 1)
-
-    def get_client(self, write=True):
+    def get_client( self, key, write = True ):
         """
         Method used for obtain a raw redis client.
 
@@ -81,20 +59,10 @@ class DefaultClient(object):
         operations for obtain a native redis client/connection
         instance.
         """
-        index = self.get_next_client_index(write=write)
+        return self.node_manager.get_node( key, write = write )
 
-        if self._clients[index] is None:
-            self._clients[index] = self.connect(index)
-
-        return self._clients[index]
-
-    def connect(self, index=0):
-        """
-        Given a connection index, returns a new raw redis client/connection
-        instance. Index is used for master/slave setups and indicates that
-        connection string should be used. In normal setups, index is 0.
-        """
-        return self.connection_factory.connect(self._server[index])
+    def get_clients( self ):
+        return self.node_manager.get_clients()
 
     def set(self, key, value, timeout=DEFAULT_TIMEOUT, version=None, client=None, nx=False, xx=False):
         """
@@ -103,7 +71,7 @@ class DefaultClient(object):
         """
 
         if not client:
-            client = self.get_client(write=True)
+            client = self.get_client( key, write = True )
 
         nkey = self.make_key(key, version=version)
         nvalue = self.encode(value)
@@ -143,7 +111,7 @@ class DefaultClient(object):
         """
 
         if client is None:
-            client = self.get_client(write=True)
+            client = self.get_client( key, write = True )
 
         if version is None:
             version = self._backend.version
@@ -183,7 +151,7 @@ class DefaultClient(object):
         Returns decoded value if key is found, the default if not.
         """
         if client is None:
-            client = self.get_client(write=False)
+            client = self.get_client( key, write = False )
 
         key = self.make_key(key, version=version)
 
@@ -199,7 +167,7 @@ class DefaultClient(object):
 
     def persist(self, key, version=None, client=None):
         if client is None:
-            client = self.get_client(write=True)
+            client = self.get_client( key, write = True )
 
         key = self.make_key(key, version=version)
 
@@ -208,17 +176,24 @@ class DefaultClient(object):
 
     def expire(self, key, timeout, version=None, client=None):
         if client is None:
-            client = self.get_client(write=True)
+            client = self.get_client( key, write = True )
 
         key = self.make_key(key, version=version)
 
         if client.exists(key):
             client.expire(key, timeout)
 
+    def touch( self, key, timeout = DEFAULT_TIMEOUT, version = None ):
+        """
+        Update the key's expiry time using timeout. Return True if successful
+        or False if the key does not exist.
+        """
+        return self.expire( key, timeout, version = version )
+
     def lock(self, key, version=None, timeout=None, sleep=0.1,
              blocking_timeout=None, client=None):
         if client is None:
-            client = self.get_client(write=True)
+            client = self.get_client( key, write = True )
 
         key = self.make_key(key, version=version)
         return client.lock(key, timeout=timeout, sleep=sleep,
@@ -229,7 +204,7 @@ class DefaultClient(object):
         Remove a key from the cache.
         """
         if client is None:
-            client = self.get_client(write=True)
+            client = self.get_client( key, write = True )
 
         try:
             return client.delete(self.make_key(key, version=version,
@@ -237,47 +212,17 @@ class DefaultClient(object):
         except _main_exceptions as e:
             raise ConnectionInterrupted(connection=client, parent=e)
 
-    def delete_pattern(self, pattern, version=None, prefix=None, client=None):
-        """
-        Remove all keys matching pattern.
-        """
-
-        if client is None:
-            client = self.get_client(write=True)
-
-        pattern = self.make_key(pattern, version=version, prefix=prefix)
-        try:
-            count = 0
-            for key in client.scan_iter(pattern):
-                client.delete(key)
-                count += 1
-            return count
-        except _main_exceptions as e:
-            raise ConnectionInterrupted(connection=client, parent=e)
-
-    def delete_many(self, keys, version=None, client=None):
-        """
-        Remove multiple keys at once.
-        """
-
-        if client is None:
-            client = self.get_client(write=True)
-
-        keys = [self.make_key(k, version=version) for k in keys]
-
-        if not keys:
-            return
-
-        try:
-            return client.delete(*keys)
-        except _main_exceptions as e:
-            raise ConnectionInterrupted(connection=client, parent=e)
-
-    def clear(self, client=None):
+    def clear( self ):
         """
         Flush all cache keys.
         """
-        self.delete_pattern("*", client=client)
+        try:
+            clients = self.get_clients()
+            if clients:
+                for client in clients:
+                    client.flushall()
+        except:
+            pass
 
     def decode(self, value):
         """
@@ -306,51 +251,6 @@ class DefaultClient(object):
 
         return value
 
-    def get_many(self, keys, version=None, client=None):
-        """
-        Retrieve many keys.
-        """
-
-        if client is None:
-            client = self.get_client(write=False)
-
-        if not keys:
-            return {}
-
-        recovered_data = OrderedDict()
-
-        new_keys = [self.make_key(k, version=version) for k in keys]
-        map_keys = dict(zip(new_keys, keys))
-
-        try:
-            results = client.mget(*new_keys)
-        except _main_exceptions as e:
-            raise ConnectionInterrupted(connection=client, parent=e)
-
-        for key, value in zip(new_keys, results):
-            if value is None:
-                continue
-            recovered_data[map_keys[key]] = self.decode(value)
-        return recovered_data
-
-    def set_many(self, data, timeout=DEFAULT_TIMEOUT, version=None, client=None):
-        """
-        Set a bunch of values in the cache at once from a dict of key/value
-        pairs. This is much more efficient than calling set() multiple times.
-
-        If timeout is given, that timeout will be used for the key; otherwise
-        the default cache timeout will be used.
-        """
-        if client is None:
-            client = self.get_client(write=True)
-
-        try:
-            pipeline = client.pipeline()
-            for key, value in data.items():
-                self.set(key, value, timeout, version=version, client=pipeline)
-            pipeline.execute()
-        except _main_exceptions as e:
-            raise ConnectionInterrupted(connection=client, parent=e)
 
     def _incr(self, key, delta=1, version=None, client=None):
         if client is None:
@@ -414,7 +314,7 @@ class DefaultClient(object):
         If key is a non volatile key, it returns None.
         """
         if client is None:
-            client = self.get_client(write=False)
+            client = self.get_client( key, write = False )
 
         key = self.make_key(key, version=version)
         if not client.exists(key):
@@ -438,43 +338,11 @@ class DefaultClient(object):
         """
 
         if client is None:
-            client = self.get_client(write=False)
+            client = self.get_client( key, write = False )
 
         key = self.make_key(key, version=version)
         try:
             return client.exists(key)
-        except _main_exceptions as e:
-            raise ConnectionInterrupted(connection=client, parent=e)
-
-    def iter_keys(self, search, itersize=None, client=None, version=None):
-        """
-        Same as keys, but uses redis >= 2.8 cursors
-        for make memory efficient keys iteration.
-        """
-
-        if client is None:
-            client = self.get_client(write=False)
-
-        pattern = self.make_key(search, version=version)
-        for item in client.scan_iter(match=pattern, count=itersize):
-            item = smart_text(item)
-            yield self.reverse_key(item)
-
-    def keys(self, search, version=None, client=None):
-        """
-        Execute KEYS command and return matched results.
-        Warning: this can return huge number of results, in
-        this case, it strongly recommended use iter_keys
-        for it.
-        """
-
-        if client is None:
-            client = self.get_client(write=False)
-
-        pattern = self.make_key(search, version=version)
-        try:
-            encoding_map = [smart_text(k) for k in client.keys(pattern)]
-            return [self.reverse_key(k) for k in encoding_map]
         except _main_exceptions as e:
             raise ConnectionInterrupted(connection=client, parent=e)
 
@@ -490,10 +358,10 @@ class DefaultClient(object):
 
         return CacheKey(self._backend.key_func(key, prefix, version))
 
-    def close(self, **kwargs):
-        for client in self._clients:
-            if not client:
-                continue
-            for c in client.connection_pool._available_connections:
-                c.disconnect()
-            del client
+    def close( self ):
+        clients = self.get_clients()
+        if clients:
+            for client in self.get_clients():
+                if not client:
+                    continue
+                client.close()
