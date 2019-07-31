@@ -254,7 +254,7 @@ class DefaultClient(object):
 
     def _incr(self, key, delta=1, version=None, client=None):
         if client is None:
-            client = self.get_client(write=True)
+            client = self.get_client( key, write = True )
 
         key = self.make_key(key, version=version)
 
