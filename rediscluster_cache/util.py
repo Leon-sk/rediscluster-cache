@@ -81,7 +81,7 @@ def default_key_func( key, key_prefix, version ):
     the `key_prefix'. KEY_FUNCTION can be used to specify an alternate
     function with custom key making behavior.
     """
-    return '%s:%s:%s' % ( key_prefix, version, key )
+    return "{}:{}:{}".format( key_prefix, version, key )
 
 
 def get_key_func( key_func ):
@@ -185,30 +185,6 @@ def force_bytes( s, encoding = 'utf-8', strings_only = False, errors = 'strict' 
     if isinstance( s, memoryview ):
         return bytes( s )
     return str( s ).encode( encoding, errors )
-
-
-class CacheKey(str):
-    """
-    A stub string class that we can use to check if a key was created already.
-    """
-    def __init__(self, key):
-        self._key = key
-
-    if sys.version_info[0] < 3:
-        def __str__(self):
-            return smart_bytes(self._key)
-
-        def __unicode__(self):
-            return smart_text(self._key)
-
-    else:
-        def __str__(self):
-            return smart_text(self._key)
-
-    def original_key(self):
-        key = self._key.rsplit(":", 1)[1]
-        return key
-
 
 def load_class(path):
     """

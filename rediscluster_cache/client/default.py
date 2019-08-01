@@ -2,13 +2,17 @@
 # -*- coding: utf-8 -*-
 
 from __future__ import absolute_import, unicode_literals
+
+import datetime
 import socket
 import warnings
+
 from redis.exceptions import ConnectionError
+
 from rediscluster_cache.exceptions import ConnectionInterrupted, CompressorError
 from rediscluster_cache.nodemanager import NodeManager
-from rediscluster_cache.util import CacheKey, load_class, integer_types
 from rediscluster_cache.util import DEFAULT_TIMEOUT, get_key_func
+from rediscluster_cache.util import load_class, integer_types
 
 # Compatibility with redis-py 2.10.6+
 try:
@@ -34,7 +38,6 @@ class DefaultClient(object):
         if not isinstance(self._server, (list, tuple, set)):
             self._server = self._server.split(",")
 
-        self._clients = [None] * DefaultClient.Slots
         self._options = params.get("OPTIONS", {})
 
         serializer_path = self._options.get( "SERIALIZER", "rediscluster_cache.serializers.pickle.PickleSerializer" )
@@ -69,71 +72,51 @@ class DefaultClient(object):
         Persist a value to the cache, and set an optional expiration time.
         Also supports optional nx parameter. If set to True - will use redis setnx instead of set.
         """
+        nkey = self.make_key( key, version = version )
 
         if not client:
-            client = self.get_client( key, write = True )
+            client = self.get_client( nkey, write = True )
 
-        nkey = self.make_key(key, version=version)
         nvalue = self.encode(value)
 
         if timeout is True:
             warnings.warn("Using True as timeout value, is now deprecated.", DeprecationWarning)
-            timeout = self._backend.default_timeout
+            timeout = int( self._backend.default_timeout )
 
         if timeout == DEFAULT_TIMEOUT:
-            timeout = self._backend.default_timeout
-
+            timeout = int( self._backend.default_timeout )
+        ex = datetime.timedelta( seconds = timeout )
         try:
-            if timeout is not None:
-                if timeout > 0:
-                    # Convert to milliseconds
-                    timeout = int(timeout * 1000)
-                elif timeout <= 0:
-                    if nx:
-                        # Using negative timeouts when nx is True should
-                        # not expire (in our case delete) the value if it exists.
-                        # Obviously expire not existent value is noop.
-                        timeout = None
-                    else:
-                        # redis doesn't support negative timeouts in ex flags
-                        # so it seems that it's better to just delete the key
-                        # than to set it and than expire in a pipeline
-                        return self.delete(key, client=client, version=version)
-
-            return client.set(nkey, nvalue, nx=nx, px=timeout, xx=xx)
+            return client.set( nkey, nvalue, ex = ex , nx = nx, xx = xx )
         except _main_exceptions as e:
             raise ConnectionInterrupted(connection=client, parent=e)
 
-    def incr_version(self, key, delta=1, version=None, client=None):
+    def incr_version( self, key, delta = 1, version = None ):
         """
         Adds delta to the cache version for the supplied key. Returns the
         new version.
         """
 
-        if client is None:
-            client = self.get_client( key, write = True )
-
         if version is None:
             version = self._backend.version
 
         old_key = self.make_key(key, version)
-        value = self.get(old_key, version=version, client=client)
+        old_client = self.get_client( old_key, write = True )
+        value = self.get( old_key, version = version, client = old_client )
 
         try:
-            ttl = client.ttl(old_key)
+            ttl = old_client.ttl( old_key )
         except _main_exceptions as e:
-            raise ConnectionInterrupted(connection=client, parent=e)
+            raise ConnectionInterrupted( connection = old_client, parent = e )
 
         if value is None:
             raise ValueError("Key '%s' not found" % key)
 
-        if isinstance(key, CacheKey):
-            new_key = self.make_key(key.original_key(), version=version + delta)
-        else:
-            new_key = self.make_key(key, version=version + delta)
+        new_key = self.make_key( key, version = version + delta )
+        new_client = self.get_client( new_key, write = True )
 
-        self.set(new_key, value, timeout=ttl, client=client)
-        self.delete(old_key, client=client)
+        self.set( new_key, value, timeout = ttl, client = new_client )
+        self.delete( old_key, client = old_client )
         return version + delta
 
     def add(self, key, value, timeout=DEFAULT_TIMEOUT, version=None, client=None):
@@ -150,10 +133,10 @@ class DefaultClient(object):
 
         Returns decoded value if key is found, the default if not.
         """
+        key = self.make_key( key, version = version )
+
         if client is None:
             client = self.get_client( key, write = False )
-
-        key = self.make_key(key, version=version)
 
         try:
             value = client.get(key)
@@ -166,19 +149,19 @@ class DefaultClient(object):
         return self.decode(value)
 
     def persist(self, key, version=None, client=None):
+        key = self.make_key( key, version = version )
+
         if client is None:
             client = self.get_client( key, write = True )
-
-        key = self.make_key(key, version=version)
 
         if client.exists(key):
             client.persist(key)
 
     def expire(self, key, timeout, version=None, client=None):
+        key = self.make_key( key, version = version )
+
         if client is None:
             client = self.get_client( key, write = True )
-
-        key = self.make_key(key, version=version)
 
         if client.exists(key):
             client.expire(key, timeout)
@@ -192,10 +175,11 @@ class DefaultClient(object):
 
     def lock(self, key, version=None, timeout=None, sleep=0.1,
              blocking_timeout=None, client=None):
+        key = self.make_key( key, version = version )
+
         if client is None:
             client = self.get_client( key, write = True )
 
-        key = self.make_key(key, version=version)
         return client.lock(key, timeout=timeout, sleep=sleep,
                            blocking_timeout=blocking_timeout)
 
@@ -203,12 +187,13 @@ class DefaultClient(object):
         """
         Remove a key from the cache.
         """
+        key = self.make_key( key, version = version, prefix = prefix )
+
         if client is None:
             client = self.get_client( key, write = True )
 
         try:
-            return client.delete(self.make_key(key, version=version,
-                                               prefix=prefix))
+            return client.delete( key )
         except _main_exceptions as e:
             raise ConnectionInterrupted(connection=client, parent=e)
 
@@ -253,10 +238,10 @@ class DefaultClient(object):
 
 
     def _incr(self, key, delta=1, version=None, client=None):
+        key = self.make_key( key, version = version )
+
         if client is None:
             client = self.get_client( key, write = True )
-
-        key = self.make_key(key, version=version)
 
         try:
             try:
@@ -313,10 +298,11 @@ class DefaultClient(object):
         Executes TTL redis command and return the "time-to-live" of specified key.
         If key is a non volatile key, it returns None.
         """
+        key = self.make_key( key, version = version )
+
         if client is None:
             client = self.get_client( key, write = False )
 
-        key = self.make_key(key, version=version)
         if not client.exists(key):
             return 0
 
@@ -347,16 +333,13 @@ class DefaultClient(object):
             raise ConnectionInterrupted(connection=client, parent=e)
 
     def make_key(self, key, version=None, prefix=None):
-        if isinstance(key, CacheKey):
-            return key
-
         if prefix is None:
             prefix = self._backend.key_prefix
 
         if version is None:
             version = self._backend.version
 
-        return CacheKey(self._backend.key_func(key, prefix, version))
+        return self._backend.key_func( key, prefix, version )
 
     def close( self ):
         clients = self.get_clients()

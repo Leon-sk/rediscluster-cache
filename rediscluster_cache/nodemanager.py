@@ -6,10 +6,25 @@ Created on 2019年7月25日
 
 @author: leon-sk
 '''
+import logging
 import random
+import socket
+import thread
+import threading
+import time
+
 from redis._compat import b, unicode, bytes, long, basestring
+from redis.exceptions import ConnectionError
+
 from rediscluster_cache.pool import get_connection_factory
 from rediscluster_cache.util import crc16
+
+# Compatibility with redis-py 2.10.6+
+try:
+    from redis.exceptions import TimeoutError, ResponseError
+    _main_exceptions = ( TimeoutError, ResponseError, ConnectionError, socket.timeout )
+except ImportError:
+    _main_exceptions = ( ConnectionError, socket.timeout )
 
 
 class NodeManager( object ):
@@ -19,21 +34,60 @@ class NodeManager( object ):
     Slots = 16384
 
     def __init__( self , server , options ):
+        self.logger = logging.getLogger( __name__ )
+
         self._server = server
-        self._options = options
+        self._options = options if options else {}
+
         if not self._server:
             raise Exception( "Missing connections string" )
 
         if not isinstance( self._server, ( list, tuple, set ) ):
             self._server = self._server.split( "," )
+        self.check_interval = self._options.get( "CHECK_INTERVAL", 300 )
+        self.checking = False
+        self._lock = threading.Lock()
 
         self._nodes = [None] * NodeManager.Slots
-
         self._keyslot = {}
 
         self.connection_factory = get_connection_factory( options = self._options )
-
         self.init_nodes()
+
+    def __del__( self ):
+        self.close()
+
+    def close( self ):
+        self.checking = False
+
+    def __start_checking_thread( self ):
+        if not self.checking:
+            self.checking = True
+            thread.start_new_thread( self.__checking_loop, () )
+
+    def __test_client( self ):
+        connected = True
+        clients = self.get_clients()
+        if clients:
+            for client in clients:
+                try:
+                    self.cluster_slots( client = client )
+                except _main_exceptions as ex:
+                    self.logger.debug( str( ex ) )
+                    connected = False
+        else:
+            connected = False
+        return connected
+
+    def __checking_loop( self ):
+        while self.checking:
+            try:
+                connected = self.__test_client()
+                if not connected:
+                    self.reset_nodes()
+                time.sleep( self.check_interval )
+            except:
+                pass
 
     def connect( self, index = None ):
         """
@@ -123,7 +177,7 @@ class NodeManager( object ):
             self._keyslot[key] = slot
         return slot
 
-    def cluster_slots(self):
+    def cluster_slots( self, client = None ):
         '''
         CLUSTER SLOTS
         Each nested result is:
@@ -137,13 +191,36 @@ class NodeManager( object ):
             '''
         cluster_nodes = None
         try:
-            client = self.get_client()
+            if not client:
+                client = self.get_client()
             if client:
                 cluster_nodes = client.execute_command( "cluster", "slots" )
                 print cluster_nodes
         except:
             pass
         return cluster_nodes
+
+    def update_server( self, host, port ):
+        if not host or not port:
+            return
+        exists = False
+        if self._server:
+            for server in self._server:
+                if server.get( "host" ) == host and server.get( "port" ) == port:
+                    exists = True
+        if not exists:
+            self._server.append( {"host":host, "port":port} )
+
+    def delete_server( self, host, port ):
+        if not host or not port:
+            return False
+        index = 0
+        while index < len( self._server ):
+            server = self._server[index]
+            if server.get( "host" ) == host and server.get( "port" ) == port:
+                self._server.pop( index )
+                index -= 1
+            index += 1
 
     def get_connections( self, params ):
         connections = []
@@ -158,15 +235,6 @@ class NodeManager( object ):
                 connections.append( connection )
         return connections
 
-    def update_server( self, host, port ):
-        if not host or not port:
-            return
-        if self._server:
-            for server in self._server:
-                if server.get( "host" ) == host and server.get( "port" ) == port:
-                    continue
-                self._server.append( {"host":host, "port":port} )
-
     def init_nodes( self ):
         '''
         Initialize all cluster node connections
@@ -177,25 +245,31 @@ class NodeManager( object ):
         for slot in slots:
             if not slot:
                 continue
-            connections = self.get_connections( slot[2:] )
+            connections = self.get_connections( slot[2:3] )
             start_range = slot[0]
             end_range = slot[1]
             for num in range( start_range, end_range + 1 ):
                 self._nodes[num] = connections
+        self.__start_checking_thread()
 
     def get_node( self, key, write = True ):
-        slot = self.keyslot( key )
-        connections = self._nodes[slot]
-        if write or len( connections ) == 1:
-            return connections[0]
+        with self._lock:
+            slot = self.keyslot( key )
+            connections = self._nodes[slot]
 
-        return random.randint( 1, len( connections ) - 1 )
+            if write or len( connections ) == 1:
+                return connections[0]
+
+            index = random.randint( 1, len( connections ) - 1 )
+            return connections[index]
 
     def reset_nodes( self ):
-        self.init_nodes()
+        with self._lock:
+            self.init_nodes()
 
 
 if __name__ == '__main__':
     server = [{"host":"192.168.2.237", "port":7000}, {"host":"192.168.2.237", "port":7001}, {"host":"192.168.2.237", "port":7002}, {"host":"192.168.2.237", "port":7003}, {"host":"192.168.2.237", "port":7004}, {"host":"192.168.2.237", "port":7005}]
     nodeManager = NodeManager( server, None )
+    time.sleep( 60 * 10 )
 
