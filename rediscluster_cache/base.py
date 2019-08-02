@@ -183,9 +183,13 @@ class BaseCache( object ):
         On backends that support it, return a list of keys that failed
         insertion, or an empty list if all keys were inserted successfully.
         """
+        keys = []
         for key, value in data.items():
-            self.set( key, value, timeout = timeout, version = version )
-        return []
+            try:
+                self.set( key, value, timeout = timeout, version = version )
+            except:
+                keys.append( key )
+        return keys
 
     def delete_many( self, keys, version = None ):
         """
@@ -193,8 +197,13 @@ class BaseCache( object ):
         (memcached), this is much more efficient than calling delete() multiple
         times.
         """
+        keys = []
         for key in keys:
-            self.delete( key, version = version )
+            try:
+                self.delete( key, version = version )
+            except:
+                keys.append( key )
+        return keys
 
     def clear( self ):
         """Remove *all* values from the cache at once."""

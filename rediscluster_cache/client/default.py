@@ -11,8 +11,7 @@ from redis.exceptions import ConnectionError
 
 from rediscluster_cache.exceptions import ConnectionInterrupted, CompressorError
 from rediscluster_cache.nodemanager import NodeManager
-from rediscluster_cache.util import DEFAULT_TIMEOUT, get_key_func
-from rediscluster_cache.util import load_class, integer_types
+from rediscluster_cache.util import DEFAULT_TIMEOUT, get_key_func, CacheKey, load_class, integer_types
 
 # Compatibility with redis-py 2.10.6+
 try:
@@ -147,15 +146,6 @@ class DefaultClient(object):
             return default
 
         return self.decode(value)
-
-    def persist(self, key, version=None, client=None):
-        key = self.make_key( key, version = version )
-
-        if client is None:
-            client = self.get_client( key, write = True )
-
-        if client.exists(key):
-            client.persist(key)
 
     def expire(self, key, timeout, version=None, client=None):
         key = self.make_key( key, version = version )
@@ -295,6 +285,7 @@ class DefaultClient(object):
 
     def ttl(self, key, version=None, client=None):
         """
+        Returns the remaining time to live of a key that has a timeout.
         Executes TTL redis command and return the "time-to-live" of specified key.
         If key is a non volatile key, it returns None.
         """
@@ -322,24 +313,27 @@ class DefaultClient(object):
         """
         Test if key exists.
         """
+        key = self.make_key( key, version = version )
 
         if client is None:
             client = self.get_client( key, write = False )
 
-        key = self.make_key(key, version=version)
         try:
             return client.exists(key)
         except _main_exceptions as e:
             raise ConnectionInterrupted(connection=client, parent=e)
 
     def make_key(self, key, version=None, prefix=None):
+        if isinstance( key, CacheKey ):
+            return key
+
         if prefix is None:
             prefix = self._backend.key_prefix
 
         if version is None:
             version = self._backend.version
 
-        return self._backend.key_func( key, prefix, version )
+        return CacheKey( self._backend.key_func( key, prefix, version ) )
 
     def close( self ):
         clients = self.get_clients()
@@ -347,4 +341,9 @@ class DefaultClient(object):
             for client in self.get_clients():
                 if not client:
                     continue
-                client.close()
+                try:
+                    if client.connection_pool:
+                        client.connection_pool.disconnect()
+                except:
+                    pass
+

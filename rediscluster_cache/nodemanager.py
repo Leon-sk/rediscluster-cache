@@ -276,7 +276,9 @@ class NodeManager( object ):
                 return connections[0]
 
             index = random.randint( 1, len( connections ) - 1 )
-            return connections[index]
+            node = connections[index]
+            self.readonly( node )
+            return node
 
     def reset_nodes( self ):
         with self._lock:

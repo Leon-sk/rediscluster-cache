@@ -215,3 +215,29 @@ if sys.version_info >= ( 3, 0, 0 ):
 else:
     crc16 = _crc16_py2
     integer_types = ( int, long, )
+
+
+class CacheKey( str ):
+    """
+    A stub string class that we can use to check if a key was created already.
+    """
+
+    def __init__( self, key ):
+        self._key = key
+
+    if sys.version_info[0] < 3:
+
+        def __str__( self ):
+            return smart_bytes( self._key )
+
+        def __unicode__( self ):
+            return smart_text( self._key )
+
+    else:
+
+        def __str__( self ):
+            return smart_text( self._key )
+
+    def original_key( self ):
+        key = self._key.rsplit( ":", 1 )[1]
+        return key

@@ -70,6 +70,10 @@ class RedisClusterCache( BaseCache ):
         return self.client.incr_version(*args, **kwargs)
 
     @omit_exception
+    def decr_version( self, *args, **kwargs ):
+        return super( RedisClusterCache, self ).decr_version( *args, **kwargs )
+
+    @omit_exception
     def add(self, *args, **kwargs):
         return self.client.add(*args, **kwargs)
 
@@ -90,12 +94,8 @@ class RedisClusterCache( BaseCache ):
         return self.client.delete(*args, **kwargs)
 
     @omit_exception
-    def delete_pattern(self, *args, **kwargs):
-        return self.client.delete_pattern(*args, **kwargs)
-
-    @omit_exception
     def delete_many(self, *args, **kwargs):
-        return self.client.delete_many(*args, **kwargs)
+        return super( RedisClusterCache, self ).delete_many( *args, **kwargs )
 
     @omit_exception
     def clear(self):
@@ -103,11 +103,11 @@ class RedisClusterCache( BaseCache ):
 
     @omit_exception(return_value={})
     def get_many(self, *args, **kwargs):
-        return self.client.get_many(*args, **kwargs)
+        return super( RedisClusterCache, self ).get_many( *args, **kwargs )
 
     @omit_exception
     def set_many(self, *args, **kwargs):
-        return self.client.set_many(*args, **kwargs)
+        return super( RedisClusterCache, self ).set_many( *args, **kwargs )
 
     @omit_exception
     def incr(self, *args, **kwargs):
@@ -122,20 +122,8 @@ class RedisClusterCache( BaseCache ):
         return self.client.has_key(*args, **kwargs)
 
     @omit_exception
-    def keys(self, *args, **kwargs):
-        return self.client.keys(*args, **kwargs)
-
-    @omit_exception
-    def iter_keys(self, *args, **kwargs):
-        return self.client.iter_keys(*args, **kwargs)
-
-    @omit_exception
     def ttl(self, *args, **kwargs):
         return self.client.ttl(*args, **kwargs)
-
-    @omit_exception
-    def persist(self, *args, **kwargs):
-        return self.client.persist(*args, **kwargs)
 
     @omit_exception
     def expire(self, *args, **kwargs):
