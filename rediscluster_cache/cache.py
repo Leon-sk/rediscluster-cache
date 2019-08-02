@@ -149,11 +149,3 @@ class RedisClusterCache( BaseCache ):
     def close(self, **kwargs):
         self.client.close(**kwargs)
 
-
-if __name__ == '__main__':
-    server = [{"host":"192.168.2.237", "port":7000}, {"host":"192.168.2.237", "port":7001}, {"host":"192.168.2.237", "port":7002}, {"host":"192.168.2.237", "port":7003}, {"host":"192.168.2.237", "port":7004}, {"host":"192.168.2.237", "port":7005}]
-    params = {"TIMEOUT":100, "OPTIONS":{"CHECK_INTERVAL":100}}
-    cache = RedisClusterCache( server, params )
-    key = "rediscluster_cache"
-    print cache.set( key, "---success---" )
-    print cache.get( key )

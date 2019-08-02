@@ -195,10 +195,21 @@ class NodeManager( object ):
                 client = self.get_client()
             if client:
                 cluster_nodes = client.execute_command( "cluster", "slots" )
-                print cluster_nodes
         except:
             pass
         return cluster_nodes
+
+    def readonly( self, client ):
+        '''
+        Enables read queries for a connection to a Redis Cluster replica node.
+            '''
+        if not client:
+            return False
+        try:
+            result = client.execute_command( "readonly" )
+        except:
+            pass
+        return True if result == 'OK' else False
 
     def update_server( self, host, port ):
         if not host or not port:
@@ -225,6 +236,7 @@ class NodeManager( object ):
     def get_connections( self, params ):
         connections = []
         if params:
+            index = 0
             for param in params:
                 host = param[0]
                 port = param[1]
@@ -233,6 +245,9 @@ class NodeManager( object ):
                     continue
                 self.update_server( host, port )
                 connections.append( connection )
+                if index != 0:
+                    self.readonly( connection )
+                index += 1
         return connections
 
     def init_nodes( self ):
@@ -245,7 +260,7 @@ class NodeManager( object ):
         for slot in slots:
             if not slot:
                 continue
-            connections = self.get_connections( slot[2:3] )
+            connections = self.get_connections( slot[2:] )
             start_range = slot[0]
             end_range = slot[1]
             for num in range( start_range, end_range + 1 ):
@@ -266,10 +281,4 @@ class NodeManager( object ):
     def reset_nodes( self ):
         with self._lock:
             self.init_nodes()
-
-
-if __name__ == '__main__':
-    server = [{"host":"192.168.2.237", "port":7000}, {"host":"192.168.2.237", "port":7001}, {"host":"192.168.2.237", "port":7002}, {"host":"192.168.2.237", "port":7003}, {"host":"192.168.2.237", "port":7004}, {"host":"192.168.2.237", "port":7005}]
-    nodeManager = NodeManager( server, None )
-    time.sleep( 60 * 10 )
 
